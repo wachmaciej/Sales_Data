@@ -2,8 +2,3 @@ streamlit
 pandas
 plotly
 openpyxl
-warnings
-datetime
-calendar
-re
-io
