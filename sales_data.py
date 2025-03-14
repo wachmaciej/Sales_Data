@@ -1168,11 +1168,16 @@ with tabs[3]:
     if "Product SKU" not in df.columns:
         st.error("The dataset does not contain a 'Product SKU' column.")
     else:
-        with st.expander("SKU Chart Filters", expanded=True):
-            sku_text = st.text_input("Enter Product SKU", value="", key="sku_input", help="Enter a SKU (or part of it) to display its weekly revenue trends.")
-            sku_years = st.multiselect("Select Year(s)", options=available_custom_years, default=default_current_year, key="sku_years", help="Default is the current custom week year.")
-            sku_channels = st.multiselect("Select Sales Channel(s)", options=sorted(df["Sales Channel"].dropna().unique()), default=[], key="sku_channels", help="Select one or more sales channels to filter SKU trends. If empty, all channels are shown.")
-            week_range = st.slider("Select Week Range", min_value=1, max_value=52, value=(1, 52), step=1, key="sku_week_range", help="Select the range of weeks to display.")
+        with st.expander("Chart Filters", expanded=False):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                sku_text = st.text_input("Enter Product SKU", value="", key="sku_input", help="Enter a SKU (or part of it) to display its weekly revenue trends.")
+            with col2:
+                sku_years = st.multiselect("Select Year(s)", options=available_custom_years, default=default_current_year, key="sku_years", help="Default is the current custom week year.")
+            with col3:
+                sku_channels = st.multiselect("Select Sales Channel(s)", options=sorted(df["Sales Channel"].dropna().unique()), default=[], key="sku_channels", help="Select one or more sales channels to filter SKU trends. If empty, all channels are shown.")
+            with col4:
+                week_range = st.slider("Select Week Range", min_value=1, max_value=52, value=(1, 52), step=1, key="sku_week_range", help="Select the range of weeks to display.")
         
         if sku_text.strip() == "":
             st.info("Please enter a Product SKU to view its trends.")
@@ -1201,7 +1206,6 @@ with tabs[3]:
                 st.dataframe(sku_pivot, use_container_width=True)
             else:
                 st.info("No 'Order Quantity' data available to show units sold.")
-
 # -------------------------------
 # Tab 5: Pivot Table: Revenue by Week
 # -------------------------------
