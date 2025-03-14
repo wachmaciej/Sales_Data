@@ -530,6 +530,9 @@ def format_revenue_drop_report(listings_df, products_df):
     # Only return the single row total summary
     return styled_total, None
 
+###############################################################################
+# UPDATED FUNCTION: Adds "Total Revenue Change (Last 4 Weeks)" + negative highlight
+###############################################################################
 def export_report_to_excel(listings_df, products_df, marketplace=None):
     import io
     import pandas as pd
@@ -538,7 +541,36 @@ def export_report_to_excel(listings_df, products_df, marketplace=None):
     output = io.BytesIO()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
+    # Identify money and percentage columns
+    money_cols = [
+        "Last_Week_Revenue", "Last_Week_Previous_Year", "Revenue_Change_Week",
+        "Last_4Weeks_Revenue", "Last_4Weeks_Previous_Year", "Revenue_Change_4Weeks"
+    ]
+    pct_cols = ["Revenue_Change_Week_Pct", "Revenue_Change_4Weeks_Pct"]
+    
+    # 1. Convert percentage columns to decimal fractions BEFORE writing to Excel
+    #    (e.g., -91.8% becomes -0.918 in the DataFrame)
+    if "Error" not in listings_df.columns and not listings_df.empty:
+        for pct_col in pct_cols:
+            if pct_col in listings_df.columns:
+                listings_df[pct_col] = listings_df[pct_col] / 100.0
+    
+    if not products_df.empty and "Error" not in listings_df.columns:
+        for pct_col in pct_cols:
+            if pct_col in products_df.columns:
+                products_df[pct_col] = products_df[pct_col] / 100.0
+    
+    # Calculate totals for 4-week summary
+    last_4w_current = listings_df["Last_4Weeks_Revenue"].sum() if "Last_4Weeks_Revenue" in listings_df.columns else 0
+    last_4w_previous = listings_df["Last_4Weeks_Previous_Year"].sum() if "Last_4Weeks_Previous_Year" in listings_df.columns else 0
+    last_4w_change = last_4w_current - last_4w_previous
+    if last_4w_previous != 0:
+        last_4w_change_pct = last_4w_change / last_4w_previous * 100
+    else:
+        last_4w_change_pct = 0
+    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Write Listings Summary
         if "Error" not in listings_df.columns and not listings_df.empty:
             listings_df.to_excel(writer, sheet_name='Listings Summary', index=False)
             workbook = writer.book
@@ -552,23 +584,23 @@ def export_report_to_excel(listings_df, products_df, marketplace=None):
                 'fg_color': '#D7E4BC',
                 'border': 1
             })
+            
+            # Write headers with styling
             for col_num, value in enumerate(listings_df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
-            money_cols = [
-                "Last_Week_Revenue", "Last_Week_Previous_Year", "Revenue_Change_Week",
-                "Last_4Weeks_Revenue", "Last_4Weeks_Previous_Year", "Revenue_Change_4Weeks"
-            ]
+            
+            # Format columns
             for money_col in money_cols:
                 if money_col in listings_df.columns:
                     col_idx = listings_df.columns.get_loc(money_col)
                     worksheet.set_column(col_idx, col_idx, 15, money_format)
-            pct_cols = ["Revenue_Change_Week_Pct", "Revenue_Change_4Weeks_Pct"]
             for pct_col in pct_cols:
                 if pct_col in listings_df.columns:
                     col_idx = listings_df.columns.get_loc(pct_col)
-                    listings_df[pct_col] = listings_df[pct_col] / 100
                     worksheet.set_column(col_idx, col_idx, 12, pct_format)
+            
             worksheet.set_column(0, 0, 25)
+            # Conditional formatting for numeric diffs (weekly/4-week columns in Listings Summary)
             for col_name in ["Revenue_Change_Week", "Revenue_Change_4Weeks"]:
                 if col_name in listings_df.columns:
                     col_idx = listings_df.columns.get_loc(col_name)
@@ -585,12 +617,26 @@ def export_report_to_excel(listings_df, products_df, marketplace=None):
                         'format': workbook.add_format({'bg_color': '#C6EFCE'})
                     })
         
+        # Write Products Detail
         if not products_df.empty and "Error" not in listings_df.columns:
             products_df.to_excel(writer, sheet_name='Products Detail', index=False)
             workbook = writer.book
             worksheet = writer.sheets['Products Detail']
+            money_format = workbook.add_format({'num_format': '£#,##0.00'})
+            pct_format = workbook.add_format({'num_format': '0.0%'})
+            header_format = workbook.add_format({
+                'bold': True,
+                'text_wrap': True,
+                'valign': 'top',
+                'fg_color': '#D7E4BC',
+                'border': 1
+            })
+            
+            # Write headers with styling
             for col_num, value in enumerate(products_df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
+            
+            # Format columns
             for money_col in money_cols:
                 if money_col in products_df.columns:
                     col_idx = products_df.columns.get_loc(money_col)
@@ -598,10 +644,11 @@ def export_report_to_excel(listings_df, products_df, marketplace=None):
             for pct_col in pct_cols:
                 if pct_col in products_df.columns:
                     col_idx = products_df.columns.get_loc(pct_col)
-                    products_df[pct_col] = products_df[pct_col] / 100
                     worksheet.set_column(col_idx, col_idx, 12, pct_format)
+            
             worksheet.set_column(0, 0, 25)
             worksheet.set_column(1, 1, 25)
+            # Conditional formatting for numeric diffs (weekly/4-week columns in Products Detail)
             for col_name in ["Revenue_Change_Week", "Revenue_Change_4Weeks"]:
                 if col_name in products_df.columns:
                     col_idx = products_df.columns.get_loc(col_name)
@@ -618,7 +665,18 @@ def export_report_to_excel(listings_df, products_df, marketplace=None):
                         'format': workbook.add_format({'bg_color': '#C6EFCE'})
                     })
         
+        # Write Report Summary if no error
         if "Error" not in listings_df.columns:
+            # Similarly get last week totals
+            last_week_current = listings_df["Last_Week_Revenue"].sum() if "Last_Week_Revenue" in listings_df.columns else 0
+            last_week_previous = listings_df["Last_Week_Previous_Year"].sum() if "Last_Week_Previous_Year" in listings_df.columns else 0
+            last_week_change = last_week_current - last_week_previous
+            if last_week_previous != 0:
+                last_week_change_pct = last_week_change / last_week_previous * 100
+            else:
+                last_week_change_pct = 0
+
+            # Create the summary data structure
             summary_data = {
                 "Report Parameter": [
                     "Marketplace",
@@ -628,9 +686,13 @@ def export_report_to_excel(listings_df, products_df, marketplace=None):
                     "Total Listings Analyzed",
                     "Total Products Analyzed",
                     "Total Last Week Revenue Current Year",
-                    "Total Last Week Revenue Previous Year", 
+                    "Total Last Week Revenue Previous Year",
                     "Total Revenue Change (Last Week)",
-                    "Revenue Change Percentage (Last Week)"
+                    "Revenue Change Percentage (Last Week)",
+                    "Total Last 4 Weeks Revenue Current Year",
+                    "Total Last 4 Weeks Revenue Previous Year",
+                    "Total Revenue Change (Last 4 Weeks)",
+                    "Revenue Change Percentage (Last 4 Weeks)"
                 ],
                 "Value": [
                     marketplace if marketplace else "All Marketplaces",
@@ -639,26 +701,134 @@ def export_report_to_excel(listings_df, products_df, marketplace=None):
                     "Last 4 Weeks",
                     len(listings_df),
                     len(products_df) if not products_df.empty else 0,
-                    f"£{listings_df['Last_Week_Revenue'].sum():,.2f}",
-                    f"£{listings_df['Last_Week_Previous_Year'].sum():,.2f}",
-                    f"£{(listings_df['Last_Week_Revenue'].sum() - listings_df['Last_Week_Previous_Year'].sum()):,.2f}",
-                    f"{((listings_df['Last_Week_Revenue'].sum() - listings_df['Last_Week_Previous_Year'].sum()) / listings_df['Last_Week_Previous_Year'].sum() * 100 if listings_df['Last_Week_Previous_Year'].sum() != 0 else 0):.1f}%"
+                    f"£{last_week_current:,.2f}",
+                    f"£{last_week_previous:,.2f}",
+                    f"£{last_week_change:,.2f}",
+                    f"{last_week_change_pct:.1f}%",
+                    f"£{last_4w_current:,.2f}",
+                    f"£{last_4w_previous:,.2f}",
+                    f"£{last_4w_change:,.2f}",
+                    f"{last_4w_change_pct:.1f}%"
                 ]
             }
             summary_df = pd.DataFrame(summary_data)
+            
+            # Create a version with raw numeric values for proper conditional formatting
+            numeric_values = [
+                "",  # Marketplace
+                "",  # Report Date
+                "",  # Report Period - Last Week
+                "",  # Report Period - Last 4 Weeks
+                len(listings_df),  # Total Listings Analyzed
+                len(products_df) if not products_df.empty else 0,  # Total Products Analyzed
+                last_week_current,  # Total Last Week Revenue Current Year
+                last_week_previous,  # Total Last Week Revenue Previous Year
+                last_week_change,  # Total Revenue Change (Last Week)
+                last_week_change_pct / 100,  # Revenue Change Percentage (Last Week)
+                last_4w_current,  # Total Last 4 Weeks Revenue Current Year
+                last_4w_previous,  # Total Last 4 Weeks Revenue Previous Year
+                last_4w_change,  # Total Revenue Change (Last 4 Weeks)
+                last_4w_change_pct / 100  # Revenue Change Percentage (Last 4 Weeks)
+            ]
+            
+            # Write the summary DataFrame to Excel
             summary_df.to_excel(writer, sheet_name='Report Summary', index=False)
+            
+            workbook = writer.book
             worksheet = writer.sheets['Report Summary']
+            header_format = workbook.add_format({
+                'bold': True,
+                'text_wrap': True,
+                'valign': 'top',
+                'fg_color': '#D7E4BC',
+                'border': 1
+            })
             for col_num, value in enumerate(summary_df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
-            worksheet.set_column(0, 0, 30)
+            
+            worksheet.set_column(0, 0, 40)
             worksheet.set_column(1, 1, 35)
-            worksheet.conditional_format(8, 1, 9, 1, {
-                'type': 'text',
-                'criteria': 'containing',
-                'value': '-',
+            
+            # Format cells with currency and percentage formats
+            currency_format = workbook.add_format({'num_format': '£#,##0.00'})
+            pct_format = workbook.add_format({'num_format': '0.0%'})
+            
+            # Write raw numeric values directly to cells for proper conditional formatting
+            # First set general formatting for the Value column
+            for row in range(1, len(summary_data["Report Parameter"]) + 1):
+                # Write the formatted values from the DataFrame
+                worksheet.write(row, 1, summary_df.iloc[row-1, 1])
+                
+            # Now write the numeric values without formatting for specific rows that need conditional formatting
+            # Total Revenue Change (Last Week) - row 9
+            worksheet.write_number(9, 1, last_week_change, currency_format)
+            # Revenue Change Percentage (Last Week) - row 10
+            worksheet.write_number(10, 1, last_week_change_pct / 100, pct_format)
+            # Total Revenue Change (Last 4 Weeks) - row 13
+            worksheet.write_number(13, 1, last_4w_change, currency_format)
+            # Revenue Change Percentage (Last 4 Weeks) - row 14
+            worksheet.write_number(14, 1, last_4w_change_pct / 100, pct_format)
+            
+            # Format specific cells with the correct format
+            for row in [7, 8, 11, 12]:  # Currency rows (exclude rows we directly wrote)
+                worksheet.set_row(row, None, currency_format)
+            
+            # Apply conditional formatting to the raw numeric cells
+            # Total Revenue Change (Last Week)
+            worksheet.conditional_format(9, 1, 9, 1, {
+                'type': 'cell',
+                'criteria': '<',
+                'value': 0,
                 'format': workbook.add_format({'bg_color': '#FFC7CE'})
             })
-    
+            worksheet.conditional_format(9, 1, 9, 1, {
+                'type': 'cell',
+                'criteria': '>',
+                'value': 0,
+                'format': workbook.add_format({'bg_color': '#C6EFCE'})
+            })
+            
+            # Total Revenue Change (Last 4 Weeks)
+            worksheet.conditional_format(13, 1, 13, 1, {
+                'type': 'cell',
+                'criteria': '<',
+                'value': 0,
+                'format': workbook.add_format({'bg_color': '#FFC7CE'})
+            })
+            worksheet.conditional_format(13, 1, 13, 1, {
+                'type': 'cell',
+                'criteria': '>',
+                'value': 0,
+                'format': workbook.add_format({'bg_color': '#C6EFCE'})
+            })
+            
+            # Also highlight the percentage rows
+            worksheet.conditional_format(10, 1, 10, 1, {
+                'type': 'cell',
+                'criteria': '<',
+                'value': 0,
+                'format': workbook.add_format({'bg_color': '#FFC7CE'})
+            })
+            worksheet.conditional_format(10, 1, 10, 1, {
+                'type': 'cell',
+                'criteria': '>',
+                'value': 0,
+                'format': workbook.add_format({'bg_color': '#C6EFCE'})
+            })
+            
+            worksheet.conditional_format(14, 1, 14, 1, {
+                'type': 'cell',
+                'criteria': '<',
+                'value': 0,
+                'format': workbook.add_format({'bg_color': '#FFC7CE'})
+            })
+            worksheet.conditional_format(14, 1, 14, 1, {
+                'type': 'cell',
+                'criteria': '>',
+                'value': 0,
+                'format': workbook.add_format({'bg_color': '#C6EFCE'})
+            })
+
     output.seek(0)
     return output
 
@@ -1084,7 +1254,7 @@ with tabs[5]:
 # Tab 7: Reporting
 # -------------------------------
 with tabs[6]:
-    st.markdown("### Revenue Drop Analysis Report")
+    st.markdown("### Revenue Analysis Report")
     st.markdown("Generate reports to analyze listings with the highest revenue drops and contributing products.")
     if "report_marketplace" not in st.session_state:
         st.session_state["report_marketplace"] = None
@@ -1132,7 +1302,7 @@ with tabs[6]:
             }
             styled_total, _ = format_revenue_drop_report(listings_df, products_df)
     st.markdown("---")
-    st.markdown("#### Additional Report Options")
+    
     with st.markdown("Export Options"):
         export_col1, export_col2 = st.columns(2)
         with export_col1:
@@ -1146,7 +1316,7 @@ with tabs[6]:
                 marketplace = st.session_state["last_report_data"].get("marketplace", "All")
                 excel_data = export_report_to_excel(listings_df, products_df, marketplace)
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                file_name = f"Revenue_Drop_Report_{marketplace}_{timestamp}.xlsx"
+                file_name = f"Revenue_Report_{marketplace}_{timestamp}.xlsx"
                 st.download_button(
                     label="📥 Download Excel Report",
                     data=excel_data,
